@@ -1,6 +1,6 @@
 import { bisection, EPSILON, getInvariantApproximation } from '@primitivefi/rmm-math'
 import { Coin, RMMPool } from './rmm'
-import { log, Log } from './utils'
+import { log, Log, normalize } from './utils'
 
 export interface TradeResult {
   coin: Coin
@@ -100,7 +100,7 @@ export class Arbitrageur {
       }
       log(Log.CALC, `Paying: ${trade.toFixed(2)} ${pool.symbol1} per LP`)
 
-      trade = trade //* pool.liq
+      trade = normalize(trade, pool.decimals1) //* pool.liq
       log(Log.CALC, `Swap in: ${trade.toFixed(2)} ${pool.symbol1}`)
 
       const { output } = pool.amountOut(pool.coin1, trade)

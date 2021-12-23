@@ -74,5 +74,6 @@ export function log(type: Log, msg: string) {
  * @notice Truncates `wad` to appropriate decimals then converts to a floating point number
  */
 export function normalize(wad: number, decimals: number) {
-  return parseFloat(wad.toFixed(decimals))
+  const x = Math.trunc(wad * 10 ** decimals) / 10 ** decimals
+  return x
 }

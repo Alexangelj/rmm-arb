@@ -99,7 +99,8 @@ export class RMMPool implements RMM {
   }
 
   get now(): number {
-    return Time.now
+    const buffer = 120 // 120s, 8 block buffer
+    return Time.now //+ buffer
   }
 
   get k(): number {
@@ -147,44 +148,45 @@ export class RMMPool implements RMM {
     } else if (input === this.coin1) {
       // stable in
 
-      const liqNorm = normalize(this.liq, 18 - this.decimals1)
-      console.log(`   - Got norm liq: ${[this.liq - liqNorm]}`)
+      const liqNorm = this.liq //normalize(this.liq, 18 - this.decimals1)
+      //console.log(`   - Got norm liq: ${[this.liq - liqNorm]}`)
 
-      const rounding = 10 ** -this.decimals0 // lowest amount of coin0
+      const rounding0 = 10 ** -this.decimals1 // lowest amount of coin0
+      const rounding1 = 10 ** -this.decimals1 // lowest amount of coin1
 
-      const adjustedWithFee = this.res1 + d * gamma // charge fee on the way in
+      const res1AdjFee = this.res1 + d * gamma - rounding1 //this.res1 + normalize(d * gamma, this.decimals1) - rounding1 // charge fee on the way in
 
       // !IMPORTANT!: adjusted reserves has the decimal places of coin1, therefore it must be truncated
       // even more importantly, the liquidity must be normalized to have 18 - coin1 decimals
       // If liquidity is 18 decimals, and a coin is 6 decimals, anything less than 1e-12 of a liquidity token
       // only has claim to a fraction of the coin (i.e. less than 6 decimals), which is 0 in smart contracts
-      const inputAdjNorm = normalize(adjustedWithFee / liqNorm, this.decimals1)
+      const res1AdjFeeNorm = normalize(res1AdjFee / liqNorm, this.decimals1)
 
-      log(Log.CALC, `Got Input Adj norm: ${[adjustedWithFee / liqNorm - inputAdjNorm]}`)
+      log(Log.CALC, `Got Input Adj norm: ${[res1AdjFee / liqNorm - res1AdjFeeNorm]}`)
 
       // note: for some reason, the regular non approximated fn outputs less
-      const R = getRiskyGivenStable(inputAdjNorm, K, sigma, tau, k)
-      if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
+      const res0 = getRiskyGivenStable(res1AdjFeeNorm, K, sigma, tau, k)
+      if (res0 < 0) throw new Error(`Reserves cannot be negative: ${res0}`)
 
-      const outputAdjNorm = normalize(normalize(R, this.decimals0) * liqNorm, this.decimals0) + rounding
-      log(Log.CALC, `Got Output Adj norm: ${[R * liqNorm - outputAdjNorm]}`)
+      const res0LiqNorm = normalize(res0 * liqNorm, this.decimals0)
+      log(Log.CALC, `Got Output Adj norm: ${[res0 * liqNorm - res0LiqNorm]}`)
 
       // ===== debug
-      const RApprox = getRiskyGivenStableApproximation(inputAdjNorm, K, sigma, tau, k)
-      //console.log(this.res0, R * this.liq, { outputAdjNorm, R, RApprox, d })
+      const RApprox = getRiskyGivenStableApproximation(res1AdjFeeNorm, K, sigma, tau, k)
+      //console.log(this.res0, res0 * this.liq, { res0LiqNorm, res0, RApprox, d })
       // ===== end debug
 
-      const output = normalize(this.res0 - outputAdjNorm, this.decimals0) // liquidity normalized
-      log(Log.CALC, `Got output norm: ${[this.res0 - outputAdjNorm - output]}`)
+      const output = normalize(this.res0 - res0LiqNorm, this.decimals0)
+      log(Log.CALC, `Got output norm: ${[this.res0 - res0LiqNorm - output]}`)
       if (output < 0) throw new Error(`Amount out cannot be negative: ${output}`)
 
-      const res0 = (this.res0 - output) / liqNorm
-      const res1 = (this.res1 + d) / liqNorm
-      const norm0 = normalize(res0, this.decimals0)
-      const norm1 = normalize(res1, this.decimals1)
-      log(Log.CALC, `Got normalized amounts: ${[res0 - norm0, res1 - norm1]}`)
+      const res0AdjNorm = normalize(this.res0 - output, this.decimals0) / liqNorm
+      const res1AdjNorm = normalize(this.res1 + d, this.decimals1) / liqNorm
+      const res0Norm = normalize(res0AdjNorm, this.decimals0)
+      const res1Norm = normalize(res1AdjNorm, this.decimals1)
+      log(Log.CALC, `Got normalized amounts: ${[res0AdjNorm - res0Norm, res1AdjNorm - res1Norm]}`)
 
-      const invariant = getInvariantApproximation(norm0, norm1, K, sigma, tau, 0)
+      const invariant = getInvariantApproximation(res0Norm, res1Norm, K, sigma, tau, 0)
       if (invariant < k) log(Log.CALC, `Invariant decreased by: ${k - invariant}`)
 
       let priceIn: number
