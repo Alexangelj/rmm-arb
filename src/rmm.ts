@@ -214,11 +214,18 @@ export class RMMPool implements RMM {
   public derivativeOut(input: Coin, d: number): DerivativeResult {
     if (d < 0) throw new Error(`Amount in cannot be negative: ${d}`)
 
-    const k = this.invariant
     const K = this.strike
     const gamma = this.gamma
     const sigma = this.sigma
     const tau = this.tau
+    const k = getInvariantApproximation(
+      normalize(this.res0 / this.liq, this.decimals0),
+      normalize(this.res1 / this.liq, this.decimals1),
+      K,
+      sigma,
+      tau,
+      0
+    )
 
     if (input === this.coin0) {
       const R = (this.res0 - d * gamma) / this.liq
