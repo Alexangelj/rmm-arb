@@ -58,3 +58,21 @@ export function parseTokenURI(uri: string) {
   const result = JSON.parse(json)
   return result
 }
+
+export enum Log {
+  CALC,
+  ACTION,
+  TX,
+}
+
+export function log(type: Log, msg: string) {
+  const spacing = type === Log.CALC ? '   - ' : type === Log.ACTION ? '   + ' : '   x '
+  console.log(`${spacing}${msg}`)
+}
+
+/**
+ * @notice Truncates `wad` to appropriate decimals then converts to a floating point number
+ */
+export function normalize(wad: number, decimals: number) {
+  return parseFloat(wad.toFixed(decimals))
+}

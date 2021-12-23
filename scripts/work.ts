@@ -8,6 +8,7 @@ import { CHAIN_ID } from '../src/addresses'
 import { Arbitrageur, TradeResult } from '../src/arb'
 import { Fetcher, Id, cred } from '../src/fetcher'
 import { Coin } from '../src/rmm'
+import { Log, log } from '../src/utils'
 
 async function main() {
   const signer = new DefenderRelaySigner(cred, Fetcher.p, { speed: 'fast' })
@@ -41,7 +42,7 @@ async function main() {
       const input = risky ? coin1 : coin0
       const symbols = [risky ? pool.symbol1 : pool.symbol0, risky ? pool.symbol0 : pool.symbol0]
       trades.push({ input, Ai, Ao, id: pool.poolId })
-      console.log(`     - Swap ${Ai} ${symbols[0]} in for ${Ao} ${symbols[1]} out on pool: ${pool.poolId.substring(0, 6)}`)
+      log(Log.TX, `Swap ${Ai} ${symbols[0]} in for ${Ao} ${symbols[1]} out on pool: ${pool.poolId.substring(0, 6)}`)
       await Fetcher.swap(input, Ai, Ao, pool, signer) // do arb exact
     }
   }

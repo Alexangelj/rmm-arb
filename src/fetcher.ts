@@ -83,11 +83,10 @@ export class Fetcher {
   ): Promise<TransactionResponse> {
     const recipient = await signer.getAddress()
     const coin0In = input === pool.coin0
-    const deltaIn = parseUnits(d.toFixed(pool.decimals1), coin0In ? pool.decimals0 : pool.decimals1).toHexString()
-    const deltaOut = parseUnits(output.toFixed(pool.decimals0), coin0In ? pool.decimals1 : pool.decimals0)
-      .mul(95)
-      .div(100)
-      .toHexString()
+    const amount0 = coin0In ? d.toFixed(pool.decimals0) : d.toFixed(pool.decimals1)
+    const amount1 = coin0In ? output.toFixed(pool.decimals1) : output.toFixed(pool.decimals0)
+    const deltaIn = parseUnits(amount0, coin0In ? pool.decimals0 : pool.decimals1).toHexString()
+    const deltaOut = parseUnits(amount1, coin0In ? pool.decimals1 : pool.decimals0).toHexString()
     const args = {
       recipient,
       risky: pool.coin0,
@@ -195,7 +194,6 @@ export class Fetcher {
     }
 
     const ks = await Promise.all(invariants)
-    console.log(ks.map(parseFloat).map((k) => k / Math.pow(2, 64)))
 
     return Promise.all(calls)
       .then((res) => {
@@ -205,8 +203,6 @@ export class Fetcher {
           const uri: PoolInterface = parseTokenURI(raw) as PoolInterface
           const pool = Fetcher.from(uri)
           pools.push(pool)
-          const k = ks?.[i]
-          //if (k) pool.invariant = parseFloat(k) / Math.pow(2, 64)
         }
 
         return pools
@@ -222,6 +218,8 @@ export class Fetcher {
     const {
       properties: { risky, stable, reserve, calibration, invariant, factory },
     } = props
+
+    const lastTimestamp = calibration?.lastTimestamp
 
     const pool = new RMMPool(
       risky.address,

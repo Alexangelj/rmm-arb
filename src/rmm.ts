@@ -10,8 +10,10 @@ import {
   getMarginalPriceSwapRiskyInApproximation,
   getMarginalPriceSwapStableInApproximation,
   callDelta,
+  getRiskyGivenStable,
+  getMarginalPriceSwapStableIn,
 } from '@primitivefi/rmm-math'
-import { computeEngineAddress, computePoolId } from './utils'
+import { computeEngineAddress, computePoolId, Log, log, normalize } from './utils'
 
 import { AddressZero } from '@ethersproject/constants'
 import { getAddress, parseUnits } from 'ethers/lib/utils'
@@ -46,6 +48,7 @@ export class RMMPool implements RMM {
   maturity: number
   gamma: number
   invariant: number
+  lastTimestamp: number
 
   factory: string
   decimals0: number = 18
@@ -64,7 +67,8 @@ export class RMMPool implements RMM {
     maturity: number,
     gamma: number,
     invariant: number,
-    factory?: string
+    factory?: string,
+    lastTimestamp: number = Time.now
   ) {
     this.coin0 = getAddress(coin0)
     this.coin1 = getAddress(coin1)
@@ -77,6 +81,7 @@ export class RMMPool implements RMM {
     this.gamma = gamma
     this.invariant = invariant
     this.factory = getAddress(factory ?? AddressZero)
+    this.lastTimestamp = lastTimestamp
   }
 
   get poolId(): string {
@@ -115,12 +120,11 @@ export class RMMPool implements RMM {
   public amountOut(input: Coin, d: number): OutputResult {
     if (d < 0) throw new Error(`Amount in cannot be negative: ${d}`)
 
-    const k = this.invariant
     const K = this.strike
     const gamma = this.gamma
     const sigma = this.sigma
     const tau = this.tau
-    const delta = d / this.liq
+    const k = getInvariantApproximation(this.res0 / this.liq, this.res1 / this.liq, K, sigma, tau, 0) //this.invariant
 
     // risky in
     if (input === this.coin0) {
@@ -130,7 +134,8 @@ export class RMMPool implements RMM {
       const res1 = this.res1 - output
       if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
 
-      const invariant = getInvariantApproximation(res0 / this.liq, res1 / this.liq, K, sigma, tau, k)
+      const invariant = getInvariantApproximation(res0 / this.liq, res1 / this.liq, K, sigma, tau, 0)
+      if (invariant < k) log(Log.CALC, `Invariant decreased from: ${k} to ${invariant}`)
       const priceIn = output / d
 
       return {
@@ -141,17 +146,46 @@ export class RMMPool implements RMM {
       }
     } else if (input === this.coin1) {
       // stable in
-      const R = getRiskyGivenStableApproximation((this.res1 + d * gamma) / this.liq, K, sigma, tau, k)
-      if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
-      console.log(this.res0, R * this.liq, { R, d })
 
-      const output = this.res0 - R * this.liq // liquidity normalized
+      const liqNorm = normalize(this.liq, 18 - this.decimals1)
+      console.log(`   - Got norm liq: ${[this.liq - liqNorm]}`)
+
+      const rounding = 10 ** -this.decimals0 // lowest amount of coin0
+
+      const adjustedWithFee = this.res1 + d * gamma // charge fee on the way in
+
+      // !IMPORTANT!: adjusted reserves has the decimal places of coin1, therefore it must be truncated
+      // even more importantly, the liquidity must be normalized to have 18 - coin1 decimals
+      // If liquidity is 18 decimals, and a coin is 6 decimals, anything less than 1e-12 of a liquidity token
+      // only has claim to a fraction of the coin (i.e. less than 6 decimals), which is 0 in smart contracts
+      const inputAdjNorm = normalize(adjustedWithFee / liqNorm, this.decimals1)
+
+      log(Log.CALC, `Got Input Adj norm: ${[adjustedWithFee / liqNorm - inputAdjNorm]}`)
+
+      // note: for some reason, the regular non approximated fn outputs less
+      const R = getRiskyGivenStable(inputAdjNorm, K, sigma, tau, k)
+      if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
+
+      const outputAdjNorm = normalize(normalize(R, this.decimals0) * liqNorm, this.decimals0) + rounding
+      log(Log.CALC, `Got Output Adj norm: ${[R * liqNorm - outputAdjNorm]}`)
+
+      // ===== debug
+      const RApprox = getRiskyGivenStableApproximation(inputAdjNorm, K, sigma, tau, k)
+      //console.log(this.res0, R * this.liq, { outputAdjNorm, R, RApprox, d })
+      // ===== end debug
+
+      const output = normalize(this.res0 - outputAdjNorm, this.decimals0) // liquidity normalized
+      log(Log.CALC, `Got output norm: ${[this.res0 - outputAdjNorm - output]}`)
       if (output < 0) throw new Error(`Amount out cannot be negative: ${output}`)
 
-      const res0 = this.res0 - output
-      const res1 = this.res1 + d
-      const invariant = getInvariantApproximation(res0 / this.liq, res1 / this.liq, K, sigma, tau, k)
-      console.log(this.k, this.invariant, { invariant })
+      const res0 = (this.res0 - output) / liqNorm
+      const res1 = (this.res1 + d) / liqNorm
+      const norm0 = normalize(res0, this.decimals0)
+      const norm1 = normalize(res1, this.decimals1)
+      log(Log.CALC, `Got normalized amounts: ${[res0 - norm0, res1 - norm1]}`)
+
+      const invariant = getInvariantApproximation(norm0, norm1, K, sigma, tau, 0)
+      if (invariant < k) log(Log.CALC, `Invariant decreased by: ${k - invariant}`)
 
       let priceIn: number
       if (d === 0) priceIn = Infinity
@@ -182,7 +216,7 @@ export class RMMPool implements RMM {
       const callDelta = 1 - R
       return {
         coin: this.coin1,
-        derivative: getMarginalPriceSwapRiskyInApproximation(d / this.liq, this.res0 / this.liq, K, sigma, tau, 1 - gamma),
+        derivative: getMarginalPriceSwapRiskyIn(d / this.liq, this.res0 / this.liq, K, sigma, tau, 1 - gamma), //getMarginalPriceSwapRiskyInApproximation(d / this.liq, this.res0 / this.liq, K, sigma, tau, 1 - gamma),
       }
       /* return {
         coin: this.coin1,
@@ -192,6 +226,10 @@ export class RMMPool implements RMM {
     } else if (input === this.coin1) {
       const R = (this.res1 + d * gamma) / this.liq
       const input = (R - k) / K
+      /* return {
+        coin: this.coin1,
+        derivative: getMarginalPriceSwapStableIn(d / this.liq, k, this.res1 / this.liq, K, sigma, tau, 1 - gamma),
+      } */
       /* return {
         coin: this.coin1,
         derivative: getMarginalPriceSwapStableInApproximation(

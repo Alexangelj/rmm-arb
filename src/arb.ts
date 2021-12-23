@@ -1,5 +1,6 @@
-import { bisection, EPSILON } from '@primitivefi/rmm-math'
+import { bisection, EPSILON, getInvariantApproximation } from '@primitivefi/rmm-math'
 import { Coin, RMMPool } from './rmm'
+import { log, Log } from './utils'
 
 export interface TradeResult {
   coin: Coin
@@ -29,9 +30,9 @@ export class Arbitrageur {
       pool.gamma,
     ]
 
-    console.log(
-      `   - Params: ${[strike.toFixed(2), sigma.toFixed(2), tau.toFixed(2), gamma.toFixed(2), invariant.toFixed(2)]}`
-    )
+    const k = getInvariantApproximation(R1, R2, strike, sigma, tau, 0)
+
+    console.log(`   - Params: ${[strike.toFixed(2), sigma.toFixed(2), tau.toFixed(2), gamma.toFixed(2), k.toFixed(2)]}`)
     console.log(`   - Reserves: ${[pool.res0.toFixed(2), pool.res1.toFixed(2)]}`)
     console.log(`   - Liq: ${pool.liq}`)
 
@@ -48,7 +49,7 @@ export class Arbitrageur {
     if (R1 < EPSILON) {
       console.log(` - ${pool.symbol0} reserves almost empty`)
       return empty(pool.coin0)
-    } else if (R2 < EPSILON || (strike + invariant - R2) / gamma < EPSILON) {
+    } else if (R2 < EPSILON || (strike + k - R2) / gamma < EPSILON) {
       console.log(` - ${pool.symbol1} reserves almost empty`)
       return empty(pool.coin0)
     } else if (1 - R1 < EPSILON) {
@@ -64,7 +65,7 @@ export class Arbitrageur {
       const fn = (d: number) => pool.derivativeOut(pool.coin0, d).derivative - p
 
       let trade: number
-      if (Math.sign(fn(EPSILON)) != Math.sign(1 - R1 - EPSILON)) {
+      if (Math.sign(fn(EPSILON)) !== Math.sign(1 - R1 - EPSILON)) {
         trade = bisection(fn, EPSILON, 1 - R1 - EPSILON)
       } else {
         trade = 1 - R1
@@ -86,33 +87,35 @@ export class Arbitrageur {
         return { Ai: trade, Ao: output, coin: pool.coin1 }
       }
     } else if (buy < p - this.optimal) {
-      console.log(`   - Buying ${pool.symbol0} for ${pool.symbol1}`)
+      log(Log.ACTION, `Buying ${pool.symbol0} for ${pool.symbol1}`)
       const fn = (d) => p - pool.derivativeOut(pool.coin1, d).derivative
 
       let trade: number
-      if (Math.sign(fn(EPSILON)) != Math.sign(fn((strike - R2 + invariant) / gamma - EPSILON))) {
-        trade = bisection(fn, 0, (strike - R2 + invariant) / gamma - EPSILON)
+      if (Math.sign(fn(EPSILON)) !== Math.sign(fn((strike - R2 + k) / gamma - EPSILON))) {
+        trade = bisection(fn, 0, (strike - R2 + k) / gamma - EPSILON)
+        log(Log.CALC, `Found trade size with bisection: ${trade}`)
       } else {
         trade = strike - R2
+        log(Log.CALC, `Trade remainder of pool: ${trade}`)
       }
-      console.log(`     - Paying: ${trade.toFixed(2)} ${pool.symbol1} per LP`)
+      log(Log.CALC, `Paying: ${trade.toFixed(2)} ${pool.symbol1} per LP`)
 
       trade = trade //* pool.liq
-      console.log(`     - Swap in: ${trade.toFixed(2)} ${pool.symbol1}`)
+      log(Log.CALC, `Swap in: ${trade.toFixed(2)} ${pool.symbol1}`)
 
       const { output } = pool.amountOut(pool.coin1, trade)
-      console.log(`     - Output: ${output} ${pool.symbol0}`)
+      log(Log.CALC, `Output: ${output} ${pool.symbol0}`)
 
       const profit = output * p - trade
-      console.log(`     - Profit: $ ${profit}`)
+      log(Log.CALC, `Profit: $ ${profit}`)
 
       if (profit > 0) {
-        console.log(`     - Running Arb`)
+        log(Log.ACTION, `Running Arb`)
         return { Ai: trade, Ao: output, coin: pool.coin0 }
       }
     }
 
-    console.log(`   - No arb`)
+    log(Log.CALC, `No arb`)
     return empty(pool.coin0)
   }
 }
