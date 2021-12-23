@@ -1,3 +1,6 @@
+import EngineArtifact from '@primitivefinance/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
+import { utils } from 'ethers'
+const { keccak256, solidityPack } = utils
 export const EPSILON = 1e-3
 
 /**
@@ -26,4 +29,26 @@ export const bisection = (func, a, b) => {
     else a = c
   }
   return c
+}
+
+export function computePoolId(engine: string, strike: number, sigma: number, maturity: number, gamma: number): string {
+  return keccak256(
+    solidityPack(['address', 'uint128', 'uint32', 'uint32', 'uint32'], [engine, strike, sigma, maturity, gamma])
+  )
+}
+
+export function computeEngineAddress(
+  factory: string,
+  risky: string,
+  stable: string,
+  contractBytecode: string = EngineArtifact.bytecode
+): string {
+  const salt = utils.solidityKeccak256(['bytes'], [utils.defaultAbiCoder.encode(['address', 'address'], [risky, stable])])
+  return utils.getCreate2Address(factory, salt, utils.keccak256(contractBytecode))
+}
+
+export function parseTokenURI(uri: string) {
+  const json = Buffer.from(uri.substring(29), 'base64').toString() //(uri.substring(29));
+  const result = JSON.parse(json)
+  return result
 }
