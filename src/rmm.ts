@@ -7,6 +7,10 @@ import {
   getRiskyGivenStableApproximation,
   getInvariantApproximation,
 } from '@primitivefi/rmm-math'
+import { computeEngineAddress, computePoolId } from './utils'
+
+import { AddressZero } from '@ethersproject/constants'
+import { parseUnits } from 'ethers/lib/utils'
 
 export type Coin = string
 
@@ -39,6 +43,10 @@ export class RMMPool implements RMM {
   gamma: number
   invariant: number
 
+  factory: string
+  decimals0: number = 18
+  decimals1: number = 18
+
   constructor(
     coin0: string,
     coin1: string,
@@ -49,7 +57,8 @@ export class RMMPool implements RMM {
     sigma: number,
     maturity: number,
     gamma: number,
-    invariant: number
+    invariant: number,
+    factory?: string
   ) {
     this.coin0 = coin0
     this.coin1 = coin1
@@ -61,6 +70,17 @@ export class RMMPool implements RMM {
     this.maturity = maturity
     this.gamma = gamma
     this.invariant = invariant
+    this.factory = factory ?? AddressZero
+  }
+
+  get poolId(): string {
+    return computePoolId(
+      computeEngineAddress(this.factory, this.coin0, this.coin1),
+      parseUnits(this.strike.toString(), this.decimals1).toHexString(),
+      parseUnits(this.sigma.toString(), 4),
+      this.maturity.toString(),
+      parseUnits(this.gamma.toString(), 4)
+    )
   }
 
   get fee(): number {

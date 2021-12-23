@@ -1,9 +1,11 @@
 import { ethers } from 'hardhat'
 import { Contract } from 'ethers'
-import { formatUnits } from 'ethers/lib/utils'
+import { formatUnits, Interface, parseUnits } from 'ethers/lib/utils'
+import { TransactionResponse } from '@ethersproject/providers'
 
 import FactoryArtifact from '@primitivefi/rmm-core/artifacts/contracts/PrimitiveFactory.sol/PrimitiveFactory.json'
-import EngineArtifact from '@primitivefinance/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
+import EngineArtifact from '@primitivefi/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
+import ManagerArtifact from '@primitivefi/rmm-manager/artifacts/contracts/interfaces/IPrimitiveManager.sol/IPrimitiveManager.json'
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers'
 
 import { Relayer } from 'defender-relay-client'
@@ -11,7 +13,7 @@ import { DefenderRelayProvider, DefenderRelaySigner } from 'defender-relay-clien
 import * as dotenv from 'dotenv'
 dotenv.config()
 const { API_KEY, API_SECRET } = process.env
-const cred = { apiKey: API_KEY ?? '', apiSecret: API_SECRET ?? '' }
+export const cred = { apiKey: API_KEY ?? '', apiSecret: API_SECRET ?? '' }
 const relay = new DefenderRelayProvider(cred)
 
 import { providers } from '@0xsequence/multicall'
@@ -23,18 +25,66 @@ import { computeEngineAddress, computePoolId, parseTokenURI } from './utils'
 import { PoolInterface } from './interfaces'
 
 export type Id = string
-export type Sender = SignerWithAddress | Relayer
+export type Sender = SignerWithAddress | DefenderRelaySigner
 
 export class Fetcher {
-  public static c: Contract = new Contract(MANAGER, ['function uri(uint256 tokenId) public view returns(string)'], provider)
+  public static p: DefenderRelayProvider = relay
+  public static c: Contract = new Contract(
+    MANAGER,
+    ManagerArtifact.abi ?? ['function uri(uint256 tokenId) public view returns(string)'],
+    provider
+  )
   public static f: Contract = new Contract(FACTORY, FactoryArtifact.abi, provider)
+  public static i: Interface = new Interface(ManagerArtifact.abi)
 
   public static instance(a: string): Contract {
     return new Contract(a, EngineArtifact.abi, provider)
   }
 
+  public static async swap(input: Coin, d: number, pool: RMMPool, signer: Sender): Promise<TransactionResponse> {
+    const recipient = await signer.getAddress()
+    const coin0In = input === pool.coin0
+    const deltaIn = parseUnits(d.toString(), coin0In ? pool.decimals0 : pool.decimals1)
+    const swap = Fetcher.i.encodeFunctionData('swap', [
+      {
+        recipient,
+        risky: pool.coin0,
+        stable: pool.coin1,
+        poolId: pool.poolId,
+        riskyForStable: coin0In,
+        deltaIn,
+        fromMargin: true,
+        toMargin: false,
+        deadline: 2 ^ (32 - 1),
+      },
+    ])
+
+    const calldata = Fetcher.i.encodeFunctionData('multicall', [swap])
+
+    return signer
+      .sendTransaction({ to: Fetcher.c.address, data: calldata, value: '0' })
+      .then((resp: TransactionResponse) => {
+        console.log(`     - Waiting for tx to be mined...`)
+        resp
+          .wait()
+          .then((receipt) => {
+            return receipt
+          })
+          .catch((e) => {
+            console.log(`   - No receipt found`)
+            console.error(e)
+            return e
+          })
+      })
+      .catch((e) => {
+        console.log(`   - Error thrown in swap`)
+        console.error(e)
+        return e
+      })
+  }
+
   // get all engine(s) data
-  public async engines(): Promise<string[]> {
+  public static async engines(): Promise<string[]> {
     const filter = Fetcher.f.filters.DeployEngine()
     const events = await Fetcher.f.queryFilter(filter)
     const elms = events.map((log) => {
@@ -50,7 +100,7 @@ export class Fetcher {
     return engines
   }
 
-  public async pool(coin0: Coin, coin1: Coin, id: Id): Promise<RMMPool> {
+  public static async pool(coin0: Coin, coin1: Coin, id: Id): Promise<RMMPool> {
     return Fetcher.c
       .uri(id)
       .then((raw: string) => {
@@ -66,7 +116,7 @@ export class Fetcher {
   }
 
   // get all pool(s) data
-  public async pools(coin0: Coin, coin1: Coin): Promise<RMMPool[]> {
+  public static async pools(coin0: Coin, coin1: Coin): Promise<RMMPool[]> {
     const a = computeEngineAddress(Fetcher.f.address, coin0, coin1)
     const e = Fetcher.instance(a)
 
@@ -115,6 +165,8 @@ export class Fetcher {
       parseFloat(formatUnits(calibration.gamma, 4)),
       parseFloat(invariant ?? '0') / Math.pow(2, 64)
     )
+    pool.decimals0 = parseFloat(risky.decimals.toString())
+    pool.decimals1 = parseFloat(stable.decimals.toString())
     return pool
   }
 

@@ -1,5 +1,10 @@
 import { bisection, EPSILON } from '@primitivefi/rmm-math'
-import { RMMPool } from './rmm'
+import { Coin, RMMPool } from './rmm'
+
+export interface TradeResult {
+  coin: Coin
+  trade: number
+}
 
 export class Arbitrageur {
   public optimal: number
@@ -8,7 +13,7 @@ export class Arbitrageur {
     this.optimal = 1e-8
   }
 
-  public arbitrage(p: number, pool: RMMPool) {
+  public arbitrage(p: number, pool: RMMPool): TradeResult {
     const [R1, R2, invariant, strike, sigma, tau] = [
       pool.res0 / pool.liq,
       pool.res1 / pool.liq,
@@ -46,7 +51,7 @@ export class Arbitrageur {
 
       if (profit > 0) {
         console.log(`     - Running Arb`)
-        return // do trade
+        return { trade, coin: pool.coin1 }
       }
     } else if (buy < p - this.optimal) {
       const fn = (d) => p - pool.derivativeOut(pool.coin1, d).derivative
@@ -70,10 +75,11 @@ export class Arbitrageur {
 
       if (profit > 0) {
         console.log(`     - Running Arb`)
-        return // do trade
+        return { trade, coin: pool.coin0 }
       }
     } else {
       console.log(`   - No arb`)
+      return { trade: 0, coin: pool.coin0 }
     }
   }
 }

@@ -1,5 +1,5 @@
-import EngineArtifact from '@primitivefinance/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
-import { utils } from 'ethers'
+import EngineArtifact from '@primitivefi/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
+import { BigNumber, utils } from 'ethers'
 const { keccak256, solidityPack } = utils
 export const EPSILON = 1e-3
 
@@ -31,7 +31,13 @@ export const bisection = (func, a, b) => {
   return c
 }
 
-export function computePoolId(engine: string, strike: number, sigma: number, maturity: number, gamma: number): string {
+export function computePoolId(
+  engine: string,
+  strike: string | BigNumber,
+  sigma: string | BigNumber,
+  maturity: string | BigNumber,
+  gamma: string | BigNumber
+): string {
   return keccak256(
     solidityPack(['address', 'uint128', 'uint32', 'uint32', 'uint32'], [engine, strike, sigma, maturity, gamma])
   )
