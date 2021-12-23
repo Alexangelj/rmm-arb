@@ -99,8 +99,8 @@ export class RMMPool implements RMM {
   }
 
   get now(): number {
-    const buffer = 120 // 120s, 8 block buffer
-    return Time.now //+ buffer
+    const buffer = 420 // 120s, 8 block buffer
+    return Time.now + buffer
   }
 
   get k(): number {
@@ -125,7 +125,14 @@ export class RMMPool implements RMM {
     const gamma = this.gamma
     const sigma = this.sigma
     const tau = this.tau
-    const k = getInvariantApproximation(this.res0 / this.liq, this.res1 / this.liq, K, sigma, tau, 0) //this.invariant
+    const k = getInvariantApproximation(
+      normalize(this.res0 / this.liq, this.decimals0),
+      normalize(this.res1 / this.liq, this.decimals1),
+      K,
+      sigma,
+      tau,
+      0
+    ) //this.invariant
 
     // risky in
     if (input === this.coin0) {
@@ -226,7 +233,8 @@ export class RMMPool implements RMM {
           K * gamma * std_n_pdf(getInverseCDFSolidity(callDelta) - sigma * Math.sqrt(tau)) * quantilePrime(callDelta),
       } */
     } else if (input === this.coin1) {
-      const R = (this.res1 + d * gamma) / this.liq
+      const AiFee = normalize(d * gamma, this.decimals1)
+      const R = normalize((this.res1 + AiFee) / this.liq, this.decimals1)
       const input = (R - k) / K
       /* return {
         coin: this.coin1,
