@@ -46,6 +46,8 @@ export class RMMPool implements RMM {
   factory: string
   decimals0: number = 18
   decimals1: number = 18
+  symbol0: string = 'Risky'
+  symbol1: string = 'Stable'
 
   constructor(
     coin0: string,
@@ -110,7 +112,7 @@ export class RMMPool implements RMM {
     const tau = this.tau
 
     if (input === this.coin0) {
-      const R = getStableGivenRiskyApproximation((this.res0 + d * gamma) / this.liq, K, sigma, tau, k) * this.liq
+      const R = getStableGivenRiskyApproximation((this.res0 + d * gamma) / this.liq, K, sigma, tau, k)
       const output = this.res1 - R * this.liq
       const res0 = this.res0 + d
       const res1 = this.res1 - output
@@ -130,9 +132,11 @@ export class RMMPool implements RMM {
       if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
       const output = this.res0 - R * this.liq
       if (output < 0) throw new Error(`Amount out cannot be negative: ${output}`)
+
       const res0 = this.res0 - output
       const res1 = this.res1 + d
       const invariant = getInvariantApproximation(res0, res1, K, sigma, tau, k)
+
       let priceIn: number
       if (d === 0) priceIn = Infinity
       else priceIn = d / output
@@ -158,16 +162,16 @@ export class RMMPool implements RMM {
     const tau = this.tau
 
     if (input === this.coin0) {
-      const R = this.res0 / this.liq
-      const callDelta = 1 - R - gamma * d
+      const R = (this.res0 - gamma * d) / this.liq
+      const callDelta = 1 - R
       return {
         coin: this.coin1,
         derivative:
           K * gamma * std_n_pdf(getInverseCDFSolidity(callDelta) - sigma * Math.sqrt(tau)) * quantilePrime(callDelta),
       }
     } else if (input === this.coin1) {
-      const R = this.res1 / this.liq
-      const input = (R + gamma * d - k) / K
+      const R = (this.res1 + gamma * d) / this.liq
+      const input = (R - k) / K
       return {
         coin: this.coin1,
         derivative:

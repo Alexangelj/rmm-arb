@@ -23,13 +23,21 @@ export class Arbitrageur {
       pool.tau,
     ]
 
-    const { derivative: sell } = pool.derivativeOut(pool.coin0, 0)
-    const { derivative: buy } = pool.derivativeOut(pool.coin1, 0)
+    console.log(`   - R1: ${R1}`)
+    console.log(`   - R2: ${R2}`)
+    console.log(`   - P: ${pool.reportedPrice}`)
+    console.log(`   - p: ${p}`)
+    console.log(`   - Diff: ${pool.reportedPrice - p}`)
+    console.log(`   - Liq: ${pool.liq}`)
 
-    console.log(`   - Buy: ${buy}`)
-    console.log(`   - Sell: ${sell}`)
+    const { derivative: buy } = pool.derivativeOut(pool.coin1, 0)
+    const { derivative: sell } = pool.derivativeOut(pool.coin0, 0)
+
+    console.log(`   - Buy ${pool.symbol0}: ${buy}`)
+    console.log(`   - Sell ${pool.symbol1}: ${sell}`)
 
     if (sell > p + this.optimal) {
+      console.log(`   - Selling ${pool.symbol0} for ${pool.symbol1}`)
       const fn = (d: number) => pool.derivativeOut(pool.coin0, d).derivative - p
 
       let trade: number
@@ -39,21 +47,23 @@ export class Arbitrageur {
         trade = 1 - R1
       }
 
-      trade = trade * pool.liq
+      console.log(`     - Per Unit: ${trade.toFixed(2)}`)
 
-      console.log(`     - Trade: ${trade}`)
+      trade = trade * pool.liq
+      console.log(`     - Selling: ${trade.toFixed(2)} ${pool.symbol0}`)
 
       const { output } = pool.amountOut(pool.coin0, trade)
-      console.log(`     - Output: ${output}`)
+      console.log(`     - Output ${pool.symbol1}: ${output}`)
 
       const profit = output - trade * p
-      console.log(`     - Profit: ${profit}`)
+      console.log(`     - Profit: $ ${profit}`)
 
       if (profit > 0) {
         console.log(`     - Running Arb`)
         return { trade, coin: pool.coin1 }
       }
     } else if (buy < p - this.optimal) {
+      console.log(`   - Buying ${pool.symbol0} for ${pool.symbol1}`)
       const fn = (d) => p - pool.derivativeOut(pool.coin1, d).derivative
 
       let trade: number
@@ -62,24 +72,24 @@ export class Arbitrageur {
       } else {
         trade = strike - R2
       }
+      console.log(`     - Per Unit: ${trade.toFixed(2)}`)
 
       trade = trade * pool.liq
-
-      console.log(`     - Trade: ${trade}`)
+      console.log(`     - Buying: ${trade.toFixed(2)} ${pool.symbol0}`)
 
       const { output } = pool.amountOut(pool.coin1, trade)
-      console.log(`     - Output: ${output}`)
+      console.log(`     - Output ${pool.symbol0}: ${output}`)
 
       const profit = output * p - trade
-      console.log(`     - Profit: ${profit}`)
+      console.log(`     - Profit: $ ${profit}`)
 
       if (profit > 0) {
         console.log(`     - Running Arb`)
         return { trade, coin: pool.coin0 }
       }
-    } else {
-      console.log(`   - No arb`)
-      return { trade: 0, coin: pool.coin0 }
     }
+
+    console.log(`   - No arb`)
+    return { trade: 0, coin: pool.coin0 }
   }
 }

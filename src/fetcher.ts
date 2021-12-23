@@ -5,10 +5,9 @@ import { TransactionResponse } from '@ethersproject/providers'
 
 import FactoryArtifact from '@primitivefi/rmm-core/artifacts/contracts/PrimitiveFactory.sol/PrimitiveFactory.json'
 import EngineArtifact from '@primitivefi/rmm-core/artifacts/contracts/PrimitiveEngine.sol/PrimitiveEngine.json'
-import ManagerArtifact from '@primitivefi/rmm-manager/artifacts/contracts/interfaces/IPrimitiveManager.sol/IPrimitiveManager.json'
+import ManagerArtifact from '@primitivefi/rmm-manager/artifacts/contracts/PrimitiveManager.sol/PrimitiveManager.json'
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers'
 
-import { Relayer } from 'defender-relay-client'
 import { DefenderRelayProvider, DefenderRelaySigner } from 'defender-relay-client/lib/ethers'
 import * as dotenv from 'dotenv'
 dotenv.config()
@@ -29,11 +28,7 @@ export type Sender = SignerWithAddress | DefenderRelaySigner
 
 export class Fetcher {
   public static p: DefenderRelayProvider = relay
-  public static c: Contract = new Contract(
-    MANAGER,
-    ManagerArtifact.abi ?? ['function uri(uint256 tokenId) public view returns(string)'],
-    provider
-  )
+  public static c: Contract = new Contract(MANAGER, ManagerArtifact.abi, provider)
   public static f: Contract = new Contract(FACTORY, FactoryArtifact.abi, provider)
   public static i: Interface = new Interface(ManagerArtifact.abi)
 
@@ -167,6 +162,8 @@ export class Fetcher {
     )
     pool.decimals0 = parseFloat(risky.decimals.toString())
     pool.decimals1 = parseFloat(stable.decimals.toString())
+    if (risky.symbol) pool.symbol0 = risky.symbol
+    if (stable.symbol) pool.symbol1 = stable.symbol
     return pool
   }
 

@@ -27,7 +27,7 @@ async function main() {
   if (trades.length > 0) {
     const { input, trade, id } = trades[0]
     const i = pools.findIndex((val) => val.poolId === id)
-    await Fetcher.swap(input, trade, pools[i], signer)
+    //await Fetcher.swap(input, trade, pools[i], signer)
   }
 }
 
