@@ -21,8 +21,8 @@ export class Arbitrageur {
 
   public arbitrage(p: number, pool: RMMPool): TradeResult {
     const [R1, R2, invariant, strike, sigma, tau, gamma] = [
-      pool.res0 / pool.liq,
-      pool.res1 / pool.liq,
+      normalize(pool.res0 / pool.liq, pool.decimals0),
+      normalize(pool.res1 / pool.liq, pool.decimals1),
       pool.invariant,
       pool.strike,
       pool.sigma,
@@ -62,7 +62,7 @@ export class Arbitrageur {
 
     if (sell > p + this.optimal) {
       console.log(`   - Selling ${pool.symbol0} for ${pool.symbol1}`)
-      const fn = (d: number) => pool.derivativeOut(pool.coin0, d).derivative - p
+      const fn = (d: number) => pool.derivativeOut(pool.coin0, normalize(d, pool.decimals0)).derivative - p
 
       let trade: number
       if (Math.sign(fn(EPSILON)) !== Math.sign(1 - R1 - EPSILON)) {
@@ -88,9 +88,10 @@ export class Arbitrageur {
       }
     } else if (buy < p - this.optimal) {
       log(Log.ACTION, `Buying ${pool.symbol0} for ${pool.symbol1}`)
-      const fn = (d) => p - pool.derivativeOut(pool.coin1, d).derivative
+      const fn = (d) => p - pool.derivativeOut(pool.coin1, normalize(d, pool.decimals1)).derivative
 
       let trade: number
+      console.log('Signs: ', Math.sign(fn(EPSILON)), Math.sign(fn((strike - R2 + k) / gamma - EPSILON)))
       if (Math.sign(fn(EPSILON)) !== Math.sign(fn((strike - R2 + k) / gamma - EPSILON))) {
         trade = bisection(fn, 0, (strike - R2 + k) / gamma - EPSILON)
         log(Log.CALC, `Found trade size with bisection: ${trade}`)
@@ -100,6 +101,7 @@ export class Arbitrageur {
       }
       log(Log.CALC, `Paying: ${trade.toFixed(2)} ${pool.symbol1} per LP`)
 
+      //trade = normalize(trade, pool.decimals1) * normalize(pool.liq, 18 - pool.decimals1)
       trade = normalize(trade, pool.decimals1) //* pool.liq
       log(Log.CALC, `Swap in: ${trade.toFixed(2)} ${pool.symbol1}`)
 
