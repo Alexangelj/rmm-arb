@@ -6,11 +6,15 @@ import {
   getStableGivenRiskyApproximation,
   getRiskyGivenStableApproximation,
   getInvariantApproximation,
+  getMarginalPriceSwapRiskyIn,
+  getMarginalPriceSwapRiskyInApproximation,
+  getMarginalPriceSwapStableInApproximation,
+  callDelta,
 } from '@primitivefi/rmm-math'
 import { computeEngineAddress, computePoolId } from './utils'
 
 import { AddressZero } from '@ethersproject/constants'
-import { parseUnits } from 'ethers/lib/utils'
+import { getAddress, parseUnits } from 'ethers/lib/utils'
 
 export type Coin = string
 
@@ -62,8 +66,8 @@ export class RMMPool implements RMM {
     invariant: number,
     factory?: string
   ) {
-    this.coin0 = coin0
-    this.coin1 = coin1
+    this.coin0 = getAddress(coin0)
+    this.coin1 = getAddress(coin1)
     this.res0 = res0
     this.res1 = res1
     this.liq = liq
@@ -72,7 +76,7 @@ export class RMMPool implements RMM {
     this.maturity = maturity
     this.gamma = gamma
     this.invariant = invariant
-    this.factory = factory ?? AddressZero
+    this.factory = getAddress(factory ?? AddressZero)
   }
 
   get poolId(): string {
@@ -93,6 +97,12 @@ export class RMMPool implements RMM {
     return Time.now
   }
 
+  get k(): number {
+    const risky = 1 - callDelta(this.strike, this.sigma, this.tau, 31_503)
+    const invariant = this.res1 / this.liq - getStableGivenRiskyApproximation(risky, this.strike, this.sigma, this.tau, 0)
+    return invariant
+  }
+
   get tau(): number {
     return new Time(this.maturity - this.now).years
   }
@@ -110,10 +120,12 @@ export class RMMPool implements RMM {
     const gamma = this.gamma
     const sigma = this.sigma
     const tau = this.tau
+    const delta = d / this.liq
 
+    // risky in
     if (input === this.coin0) {
       const R = getStableGivenRiskyApproximation((this.res0 + d * gamma) / this.liq, K, sigma, tau, k)
-      const output = this.res1 - R * this.liq
+      const output = this.res1 - R * this.liq // liquidity normalized
       const res0 = this.res0 + d
       const res1 = this.res1 - output
       if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
@@ -128,14 +140,18 @@ export class RMMPool implements RMM {
         priceIn: priceIn,
       }
     } else if (input === this.coin1) {
-      const R = getRiskyGivenStableApproximation((this.res1 + gamma * d) / this.liq, K, sigma, tau, k)
+      // stable in
+      const R = getRiskyGivenStableApproximation((this.res1 + d * gamma) / this.liq, K, sigma, tau, k)
       if (R < 0) throw new Error(`Reserves cannot be negative: ${R}`)
-      const output = this.res0 - R * this.liq
+      console.log(this.res0, R * this.liq, { R, d })
+
+      const output = this.res0 - R * this.liq // liquidity normalized
       if (output < 0) throw new Error(`Amount out cannot be negative: ${output}`)
 
       const res0 = this.res0 - output
       const res1 = this.res1 + d
-      const invariant = getInvariantApproximation(res0, res1, K, sigma, tau, k)
+      const invariant = getInvariantApproximation(res0 / this.liq, res1 / this.liq, K, sigma, tau, k)
+      console.log(this.k, this.invariant, { invariant })
 
       let priceIn: number
       if (d === 0) priceIn = Infinity
@@ -162,20 +178,37 @@ export class RMMPool implements RMM {
     const tau = this.tau
 
     if (input === this.coin0) {
-      const R = (this.res0 - gamma * d) / this.liq
+      const R = (this.res0 - d * gamma) / this.liq
       const callDelta = 1 - R
       return {
         coin: this.coin1,
+        derivative: getMarginalPriceSwapRiskyInApproximation(d / this.liq, this.res0 / this.liq, K, sigma, tau, 1 - gamma),
+      }
+      /* return {
+        coin: this.coin1,
         derivative:
           K * gamma * std_n_pdf(getInverseCDFSolidity(callDelta) - sigma * Math.sqrt(tau)) * quantilePrime(callDelta),
-      }
+      } */
     } else if (input === this.coin1) {
-      const R = (this.res1 + gamma * d) / this.liq
+      const R = (this.res1 + d * gamma) / this.liq
       const input = (R - k) / K
+      /* return {
+        coin: this.coin1,
+        derivative: getMarginalPriceSwapStableInApproximation(
+          d / this.liq,
+          k,
+          this.res1 / this.liq,
+          K,
+          sigma,
+          tau,
+          1 - gamma
+        ),
+      } */
       return {
         coin: this.coin1,
         derivative:
-          (1 / gamma) * std_n_pdf(getInverseCDFSolidity(input) + sigma * Math.sqrt(tau)) * quantilePrime((input * 1) / K),
+          1 /
+          (gamma * std_n_pdf(getInverseCDFSolidity(input) + sigma * Math.sqrt(tau)) * quantilePrime((R - k) / K) * (1 / K)),
       }
     } else {
       throw new Error(`Not a valid coin: ${input}`)
